@@ -549,33 +549,27 @@ int GR_InitialiseGLContext(char* windowName, int fullscreen)
 		return 0;
 	}
 
-	/* TEMP DIAGNOSTIC (unbuffered, bypasses PsyX_Log entirely so it survives
-	 * even with enable_debug_log=0 and can't be lost to log-writer reordering
-	 * on Vita3K): bracket the ONLY vglInitExtended()/sceGxmCreateContext call
-	 * site in this codebase so we can see, unambiguously, whether the call
-	 * itself returns before anything else runs, and whether GR_InitialiseGLContext
-     * is ever entered more than once in a single process lifetime. Remove
-	 * once the ALREADY_INITIALIZED root cause is confirmed. */
-	{
-		static int s_glContextInitCallCount = 0;
-		fprintf(stderr, "[SH-DIAG] GR_InitialiseGLContext ENTER, call #%d\n", ++s_glContextInitCallCount);
-		fflush(stderr);
-	}
-
-	fprintf(stderr, "[SH-DIAG] about to call vglInitExtended...\n");
-	fflush(stderr);
-
-	int vglOk = vglInitExtended(0, g_windowWidth, g_windowHeight, SH_VITA_GL_RAM_THRESHOLD,
-	                             (SceGxmMultisampleMode)g_cfg_msaaSamplesVitaInit);
-
-	fprintf(stderr, "[SH-DIAG] vglInitExtended returned %d\n", vglOk);
-	fflush(stderr);
-
-	if (!vglOk)
-	{
-		eprinterr("Failed to initialise vitaGL!\n");
-		return 0;
-	}
+	/* vglInitExtended()'s GLboolean return is NOT a success/failure status --
+	 * per vitaGL's own source (vgl.c, vglInitWithCustomSizes): it's
+	 * `res_fallback`, GL_TRUE only when the requested width/height exceeded
+	 * the display's max framebuffer resolution and vitaGL had to clamp it
+	 * down (width/height are adjusted in place when that happens). GL_FALSE
+	 * (0) is the NORMAL, successful, "no clamping needed" case -- which is
+	 * always what happens here, since we always request the Vita's native
+	 * 960x544. A prior version of this code treated 0 as failure and called
+	 * PsyX_Shutdown() right after a fully successful vitaGL/sceGxm init,
+	 * destroying the SDL window and leaving a live, never-destroyed GXM
+	 * context behind; the very next sceGxmCreateContext call (e.g. a user
+	 * relaunch, or Vita3K's own retry) then failed with
+	 * SCE_GXM_ERROR_ALREADY_INITIALIZED, and vitaGL's init_gxm_context()
+	 * doesn't check that call's result before dereferencing the context it
+	 * assumes it just created -- EXCEPTION_ACCESS_VIOLATION. vitaGL has no
+	 * separate "did it actually fail" signal to check instead; a real
+	 * allocation/driver failure inside vglInitWithCustomSizes has no
+	 * recovery path of its own (no error return at all), so there is
+	 * nothing left to gate on here. */
+	vglInitExtended(0, g_windowWidth, g_windowHeight, SH_VITA_GL_RAM_THRESHOLD,
+	                 (SceGxmMultisampleMode)g_cfg_msaaSamplesVitaInit);
 	glViewport(0, 0, g_windowWidth, g_windowHeight);
 
 	return 1;
