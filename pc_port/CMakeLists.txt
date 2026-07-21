@@ -596,14 +596,74 @@ install(TARGETS SilentHillPC RUNTIME DESTINATION bin)
 if(VITA)
     include("${VITASDK}/share/vita.cmake" REQUIRED)
 
+    # Embed the curated map-API export table (vita_export/map_api_exports.yml)
+    # into SilentHillPC's own VELF so map overlay .suprx modules (see
+    # maps_vita/CMakeLists.txt) can import game-code symbols from it via
+    # sceKernelLoadStartModule's native NID-based import binding. This is a
+    # CONFIG (-e), NOT a GEN_EXPORTS (-g) -- auto-generating from the full
+    # ~12.7k-symbol table hard-fails ("segment 1 overlaps"); see the comment
+    # at the top of that yml for how this curated list was derived.
+    vita_create_self(SilentHillPC.self SilentHillPC UNSAFE
+        CONFIG "${CMAKE_SOURCE_DIR}/vita_export/map_api_exports.yml"
+    )
+
+    # Generate the stub static library map overlay modules link against to
+    # import the symbols above. vita-elf-export reads the SAME exports yml
+    # against the built ELF (not the VELF) to produce an imports yml, which
+    # vita-libs-gen turns into libSilentHillPC_stub.a + a small CMake project
+    # to build it -- add_subdirectory it directly so `make` builds the stub
+    # lib as part of the normal build (no separate manual step).
+    set(SH_VITA_MAP_IMPORTS_YML "${CMAKE_BINARY_DIR}/map_api_imports.yml")
+    add_custom_command(
+        OUTPUT "${SH_VITA_MAP_IMPORTS_YML}"
+        COMMAND "${VITA_ELF_EXPORT}" user
+                "$<TARGET_FILE:SilentHillPC>"
+                "${CMAKE_SOURCE_DIR}/vita_export/map_api_exports.yml"
+                "${SH_VITA_MAP_IMPORTS_YML}"
+        DEPENDS SilentHillPC "${CMAKE_SOURCE_DIR}/vita_export/map_api_exports.yml"
+        COMMENT "Generating map_api_imports.yml (map overlay import table)"
+        VERBATIM
+    )
+    add_custom_target(gen_map_api_imports DEPENDS "${SH_VITA_MAP_IMPORTS_YML}")
+
+    set(SH_VITA_STUBLIB_DIR "${CMAKE_BINARY_DIR}/map_stub_lib")
+    add_custom_command(
+        OUTPUT "${SH_VITA_STUBLIB_DIR}/libSilentHillPC_stub.a"
+        COMMAND "${VITA_LIBS_GEN}" -c "${SH_VITA_MAP_IMPORTS_YML}" "${SH_VITA_STUBLIB_DIR}"
+        COMMAND ${CMAKE_COMMAND} -E env VITASDK=${VITASDK}
+                ${CMAKE_COMMAND} -S "${SH_VITA_STUBLIB_DIR}" -B "${SH_VITA_STUBLIB_DIR}/build"
+                -DCMAKE_TOOLCHAIN_FILE=${VITASDK}/share/vita.toolchain.cmake
+        COMMAND ${CMAKE_COMMAND} --build "${SH_VITA_STUBLIB_DIR}/build"
+        COMMAND ${CMAKE_COMMAND} -E copy
+                "${SH_VITA_STUBLIB_DIR}/build/libSilentHillPC_stub.a"
+                "${SH_VITA_STUBLIB_DIR}/libSilentHillPC_stub.a"
+        DEPENDS "${SH_VITA_MAP_IMPORTS_YML}"
+        COMMENT "Building map overlay stub import library (libSilentHillPC_stub.a)"
+        VERBATIM
+    )
+    add_custom_target(map_stub_lib ALL DEPENDS "${SH_VITA_STUBLIB_DIR}/libSilentHillPC_stub.a")
+    add_dependencies(map_stub_lib gen_map_api_imports)
+
     # First public build slot: no icon0.png/livearea assets committed yet
     # (see docs/vita_port.md) -- VitaShell/LiveArea fall back to a default
     # icon/background for a title with none, so the VPK still installs and
     # launches fine without them. Follow-up: add sce_sys/ art and reference
     # it here via vita_create_vpk's FILE args.
-    vita_create_self(SilentHillPC.self SilentHillPC UNSAFE)
     vita_create_vpk(SilentHillPC.vpk "SLHL00001" SilentHillPC.self
         VERSION "01.00"
         NAME "Silent Hill"
     )
+
+    # Map overlays built as .suprx modules, loaded at runtime via
+    # sceKernelLoadStartModule (see dll_loader.c). Off by default so a plain
+    # build (matching the desktop SH_BUILD_MAP_DLLS default) doesn't need the
+    # stub lib to exist yet on a fresh checkout; the test-build workflow turns
+    # this on explicitly. Not gated behind SH_BUILD_MAP_DLLS (that option is
+    # forced OFF above for Vita and means something platform-specific there --
+    # Linux/Windows .so/.dll overlays via dlopen, a completely different
+    # loading mechanism this option doesn't touch).
+    option(SH_BUILD_MAP_MODULES_VITA "Build map overlays as .suprx modules (PS Vita)" OFF)
+    if(SH_BUILD_MAP_MODULES_VITA)
+        add_subdirectory(maps_vita)
+    endif()
 endif()

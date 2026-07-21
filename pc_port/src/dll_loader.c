@@ -7,6 +7,7 @@
  */
 #include "dll_loader.h"
 #include <stdio.h>
+#include <stdint.h>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -47,38 +48,84 @@ const char* DllLoader_GetError(void)
 
 #elif defined(__vita__)
 /*
- * PS Vita: no dlopen()-equivalent for loading arbitrary native code at
- * runtime in the stock newlib/vitasdk environment (unlike Linux/macOS/
- * Windows). This first port milestone follows the same path the default
- * desktop PC build already uses: only map0_s00 is compiled directly into
- * the executable (SH_BUILD_MAP_DLLS is OFF by default there too — see
- * pc_port/CMakeLists.txt) and MapOverlay_Load already handles a load
- * failure for any other map by logging and returning NULL.
+ * PS Vita: no dlopen()-equivalent exists in the stock newlib/vitasdk
+ * environment, BUT the kernel's native module loader
+ * (sceKernelLoadStartModule) does everything dlopen would need for our
+ * purposes: it maps the target .suprx, applies its relocations against the
+ * running process (the exact mechanism every taiHEN plugin/.suprx homebrew
+ * add-on uses), calls its module_start entrypoint, and hands back a module
+ * ID we can later unload with sceKernelStopUnloadModule.
  *
- * A follow-up port milestone can revisit this to dynamically load the
- * other 42 map overlays via kubridge (which allows mapping+relocating a
- * SELF/velf at runtime with kernel help) instead of statically linking all
- * of them into one executable (which hits the same 500+ symbol collisions
- * the desktop build's comment above describes).
+ * The one real gap vs. dlopen/dlsym is symbol resolution direction:
+ *   - IMPORTS (map -> exe):  handled by Sony's own module import-binding,
+ *     driven by the stub library the map module links against (generated
+ *     by vita-elf-export + vita-libs-gen from vita_export/map_api_exports.yml
+ *     — see pc_port/CMakeLists.txt's map_stub_lib target). This resolves
+ *     purely at link time on our side; sceKernelLoadStartModule itself does
+ *     the actual NID-based binding against the running exe at load time.
+ *   - EXPORTS (exe -> map), i.e. "give me g_MapOverlayHeader_<name> after
+ *     loading": there is no by-name lookup analogous to dlsym for a
+ *     just-loaded user module without extra taiHEN NID-lookup machinery.
+ *     We sidestep that entirely with a PUSH model instead: each map's
+ *     module_start calls MapOverlay_VitaRegister(&g_MapOverlayHeader_<name>)
+ *     (imported from the exe via the same stub lib), which
+ *     sceKernelLoadStartModule runs synchronously before returning here — so
+ *     by the time DllLoader_Open returns, map_overlay_loader.c already has
+ *     the pointer waiting for it. See MapOverlay_Load's __vita__ branch.
+ *
+ * DllHandle is the SceUID module ID (sceKernelLoadStartModule's return
+ * value), stuffed into the opaque void* the rest of the codebase already
+ * expects.
  */
-static char s_vitaDllError[128] = "dynamic module loading is not supported on this platform";
+#include <psp2/kernel/modulemgr.h>
+#include <psp2/kernel/threadmgr.h>
+
+static char s_vitaDllError[128] = { 0 };
 
 DllHandle DllLoader_Open(const char* path)
 {
-    (void)path;
-    return NULL;
+    SceUID modid;
+    int status = 0;
+
+    modid = sceKernelLoadStartModule(path, 0, NULL, 0, NULL, &status);
+    if (modid < 0)
+    {
+        snprintf(s_vitaDllError, sizeof(s_vitaDllError),
+                 "sceKernelLoadStartModule error 0x%08X", (unsigned)modid);
+        return NULL;
+    }
+    if (status != 0)
+    {
+        /* Module loaded and its module_start ran, but returned a nonzero
+         * status -- treat as a load failure and unwind, same as the
+         * modid < 0 case, rather than handing back a half-good handle. */
+        snprintf(s_vitaDllError, sizeof(s_vitaDllError),
+                 "module_start returned status 0x%08X", (unsigned)status);
+        sceKernelStopUnloadModule(modid, 0, NULL, 0, NULL, NULL);
+        return NULL;
+    }
+
+    return (DllHandle)(intptr_t)modid;
 }
 
 void* DllLoader_GetSymbol(DllHandle handle, const char* name)
 {
+    /* Not supported on this platform -- see the push-model note above.
+     * MapOverlay_Load's __vita__ branch never calls this; any other caller
+     * hitting it is a platform-support gap that should be logged. */
     (void)handle;
     (void)name;
+    snprintf(s_vitaDllError, sizeof(s_vitaDllError),
+             "DllLoader_GetSymbol is not supported on Vita (push-model registration only)");
     return NULL;
 }
 
 void DllLoader_Close(DllHandle handle)
 {
-    (void)handle;
+    SceUID modid = (SceUID)(intptr_t)handle;
+    int status = 0;
+    if (handle)
+        sceKernelStopUnloadModule(modid, 0, NULL, 0, NULL, &status);
 }
 
 const char* DllLoader_GetError(void)

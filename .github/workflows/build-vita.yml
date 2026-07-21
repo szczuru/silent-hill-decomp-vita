@@ -79,3 +79,58 @@ jobs:
           path: pc_port/build_vita/SilentHillPC.vpk
           if-no-files-found: error
           retention-days: 90
+
+  # 4-map test build (map0_s00 built-in + map0_s01/map0_s02/map1_s00 as
+  # loadable .suprx modules -- see maps_vita/CMakeLists.txt and
+  # dll_loader.c). Separate job (not folded into `build` above) so the
+  # always-on default build's status is unaffected if this experimental
+  # path ever regresses; both run in parallel.
+  build-with-maps:
+    runs-on: ubuntu-latest
+    container:
+      image: vitasdk/vitasdk:latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install vitasdk portlibs (vdpm)
+        run: |
+          set -euo pipefail
+          git clone --depth=1 https://github.com/vitasdk/vdpm.git /tmp/vdpm
+          cd /tmp/vdpm
+          for pkg in kubridge vitaShaRK vitaGL sdl2 openal-soft libjpeg-turbo zlib libpng freetype; do
+            ./vdpm -f "$pkg"
+          done
+
+      - name: Configure (CMake + vitasdk toolchain, map modules ON)
+        run: |
+          set -euo pipefail
+          cd pc_port
+          cmake -B build_vita_maps -G "Unix Makefiles" \
+            -DCMAKE_TOOLCHAIN_FILE="$VITASDK/share/vita.toolchain.cmake" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DSH_BUILD_MAP_MODULES_VITA=ON
+
+      - name: Build (SilentHillPC.vpk + map0_s01/map0_s02/map1_s00 .suprx)
+        run: |
+          set -euo pipefail
+          cd pc_port/build_vita_maps
+          make -j"$(nproc)"
+
+      - name: Verify outputs were produced
+        run: |
+          set -euo pipefail
+          ls -la pc_port/build_vita_maps/SilentHillPC.vpk
+          ls -la pc_port/build_vita_maps/maps_vita_out/*.suprx
+          unzip -l pc_port/build_vita_maps/SilentHillPC.vpk
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SilentHillVita-4maps
+          path: |
+            pc_port/build_vita_maps/SilentHillPC.vpk
+            pc_port/build_vita_maps/maps_vita_out/*.suprx
+          if-no-files-found: error
+          retention-days: 90

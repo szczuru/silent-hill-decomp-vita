@@ -1,0 +1,9 @@
+# vita-elf-create -e config for a map overlay .suprx module (see
+# maps_vita/CMakeLists.txt's add_map_module()). Generated per-map with
+# @MAP_NAME@ substituted. Declares module_start/module_stop as the module's
+# entrypoints (Sony's loader calls these, not main -- see module_glue.c.in).
+@MAP_NAME@:
+  attributes: 0
+  main:
+    start: module_start
+    stop: module_stop
