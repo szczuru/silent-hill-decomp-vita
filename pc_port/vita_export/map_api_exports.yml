@@ -20,6 +20,20 @@
 # =============================================================================
 SilentHillPC:
   attributes: 0
+  # process_image: true is REQUIRED for a normal executable (as opposed to a
+  # loadable library/module like the map .suprx files this same tool builds
+  # -- see maps_vita/module_config.yml.in, which correctly omits it). Without
+  # it, vita-elf-create still produces a VELF that boots, but the kernel
+  # module-manager treats it as a non-process-image module: sceGxmInitialize
+  # gets silently redirected to the VSH-internal sceGxmVshInitialize path
+  # (visible in a Vita3K log as "Stubbed sceGxmVshInitialize... (sceGxmInitialize)"),
+  # which then collides with the *real* sceGxmCreateContext call right after
+  # ("SCE_GXM_ERROR_ALREADY_INITIALIZED"), crashing on the bogus/half-built
+  # GXM context (EXCEPTION_ACCESS_VIOLATION reading offset 0x78 into it).
+  # This one-line omission is what broke the previously-working plain build
+  # the moment this yml got wired in as SilentHillPC's own -e CONFIG.
+  process_image: true
+  imagemodule: false
   main:
     start: _start
   libraries:
