@@ -48,9 +48,25 @@ jobs:
           set -euo pipefail
           git clone --depth=1 https://github.com/vitasdk/vdpm.git /tmp/vdpm
           cd /tmp/vdpm
-          for pkg in kubridge vitaShaRK vitaGL sdl2 openal-soft libjpeg-turbo zlib libpng freetype; do
+          for pkg in kubridge vitaShaRK sdl2 openal-soft libjpeg-turbo zlib libpng freetype; do
             ./vdpm -f "$pkg"
           done
+
+      # vitaGL is built from source (not via vdpm's prebuilt package) so we can pass
+      # NO_SPLASHSCREEN=1. vdpm's package has no build-flag customization, and vitaGL's
+      # default build spawns a second concurrent sceGxmCreateContext on a background
+      # thread for its animated splash screen. Real Vita hardware supports multiple
+      # immediate GXM contexts, but Vita3K does not, causing
+      # SCE_GXM_ERROR_ALREADY_INITIALIZED followed by a crash inside vitaGL's unchecked
+      # init_gxm_context(). NO_SPLASHSCREEN=1 defines SKIP_SPLASHSCREEN, compiling that
+      # thread out entirely.
+      - name: Build & install vitaGL from source (NO_SPLASHSCREEN=1)
+        run: |
+          set -euo pipefail
+          git clone --depth=1 https://github.com/Rinnegatamante/vitaGL.git /tmp/vitaGL
+          cd /tmp/vitaGL
+          make -j"$(nproc)" NO_SPLASHSCREEN=1
+          make install
 
       - name: Configure (CMake + vitasdk toolchain)
         run: |
@@ -99,9 +115,19 @@ jobs:
           set -euo pipefail
           git clone --depth=1 https://github.com/vitasdk/vdpm.git /tmp/vdpm
           cd /tmp/vdpm
-          for pkg in kubridge vitaShaRK vitaGL sdl2 openal-soft libjpeg-turbo zlib libpng freetype; do
+          for pkg in kubridge vitaShaRK sdl2 openal-soft libjpeg-turbo zlib libpng freetype; do
             ./vdpm -f "$pkg"
           done
+
+      # See build job above for why vitaGL is built from source with NO_SPLASHSCREEN=1
+      # instead of being installed via vdpm's prebuilt package.
+      - name: Build & install vitaGL from source (NO_SPLASHSCREEN=1)
+        run: |
+          set -euo pipefail
+          git clone --depth=1 https://github.com/Rinnegatamante/vitaGL.git /tmp/vitaGL
+          cd /tmp/vitaGL
+          make -j"$(nproc)" NO_SPLASHSCREEN=1
+          make install
 
       - name: Configure (CMake + vitasdk toolchain, map modules ON)
         run: |
