@@ -8,7 +8,14 @@ set(CMAKE_CXX_STANDARD 17)
 # shared objects that link the static psycross_static archive; linking a
 # static (non-PIC) archive into a shared object fails, so force PIC globally.
 # Harmless on Windows/MinGW (PE code is already position-independent).
-set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+#
+# NOT on Vita: PIC codegen emits R_ARM_BASE_PREL-family relocations that
+# vita-elf-create's ELF->VELF converter doesn't understand ("Invalid
+# relocation type 25!"), and this platform has no shared-object map overlays
+# to justify it anyway (SH_BUILD_MAP_DLLS is forced off above).
+if(NOT VITA)
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
 
 # =============================================================================
 # Options
@@ -476,11 +483,20 @@ if(VITA)
     # vitaGL IS the GL implementation here (see PsyCross/CMakeLists.txt,
     # which links psycross_static to it) -- there is no separate system GL
     # library to find/link on this platform.
+    # pthread: openal-soft's mixer thread + libstdc++'s std::locale/emutls
+    # both pull in pthread_* symbols that vitasdk's libc leaves as a
+    # separate archive (unlike glibc, where they're always present) --
+    # must come after psycross_static/OpenAL in link order.
     target_link_libraries(SilentHillPC PRIVATE
         SceAppMgr_stub SceAudio_stub SceAudioIn_stub SceCommonDialog_stub
         SceCtrl_stub SceDisplay_stub SceGxm_stub SceHid_stub SceMotion_stub
         SceSysmodule_stub SceTouch_stub taihen_stub
     )
+    # Also linked from PsyCross/CMakeLists.txt (after OpenAL, where it's
+    # actually needed in link order) -- repeated here so pthread_* symbols
+    # libstdc++/libgcc pull in from *this* target's own object files (the
+    # C++ FMV player, std::locale init, etc) are covered too.
+    target_link_libraries(SilentHillPC PRIVATE pthread)
 elseif(WIN32)
     target_link_libraries(SilentHillPC PRIVATE opengl32 winmm m)
 elseif(UNIX)
@@ -569,3 +585,25 @@ endif()
 # Install
 # =============================================================================
 install(TARGETS SilentHillPC RUNTIME DESTINATION bin)
+
+# =============================================================================
+# PS Vita packaging (.vpk)
+# =============================================================================
+# ELF -> Sony VELF -> encrypted/signed-format SELF (eboot.bin) -> SFO (title
+# metadata) -> VPK (the installable package format VitaShell/qzip expect).
+# vita.cmake (vitasdk's helper macros) ships alongside vita.toolchain.cmake
+# and defines vita_create_self / vita_create_vpk.
+if(VITA)
+    include("${VITASDK}/share/vita.cmake" REQUIRED)
+
+    # First public build slot: no icon0.png/livearea assets committed yet
+    # (see docs/vita_port.md) -- VitaShell/LiveArea fall back to a default
+    # icon/background for a title with none, so the VPK still installs and
+    # launches fine without them. Follow-up: add sce_sys/ art and reference
+    # it here via vita_create_vpk's FILE args.
+    vita_create_self(SilentHillPC.self SilentHillPC UNSAFE)
+    vita_create_vpk(SilentHillPC.vpk "SLHL00001" SilentHillPC.self
+        VERSION "01.00"
+        NAME "Silent Hill"
+    )
+endif()

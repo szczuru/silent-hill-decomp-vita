@@ -242,6 +242,28 @@ int			g_ALEffectsSupported = 0;
 
 #ifndef __EMSCRIPTEN__
 
+/* On Linux/macOS/Windows, libopenal is a SHARED library: these globals'
+ * default visibility interposes libopenal.so's own alGenEffects/etc (EFX is
+ * an optional AL extension, only reachable in the base API via
+ * alGetProcAddress, so nothing else calls these names directly) -- see the
+ * "EFX function-pointer variables" comment near the top of this file for
+ * why. On the Vita, OpenAL is a STATIC archive (no shared-library
+ * indirection to interpose): giving these globals the real EFX names is a
+ * hard link-time multiple-definition error against libopenal.a's actual
+ * alGenEffects()/etc, not a working interposition. Prefixed instead; used
+ * exactly like the real names everywhere below via a set of macros so the
+ * call sites don't need __vita__ special-casing. */
+#if defined(__vita__)
+#define alGenEffects                 g_pfnAlGenEffects
+#define alDeleteEffects              g_pfnAlDeleteEffects
+#define alEffecti                    g_pfnAlEffecti
+#define alEffectf                    g_pfnAlEffectf
+#define alGenAuxiliaryEffectSlots    g_pfnAlGenAuxiliaryEffectSlots
+#define alDeleteAuxiliaryEffectSlots g_pfnAlDeleteAuxiliaryEffectSlots
+#define alAuxiliaryEffectSloti       g_pfnAlAuxiliaryEffectSloti
+#define alAuxiliaryEffectSlotf       g_pfnAlAuxiliaryEffectSlotf
+#endif
+
 LPALGENEFFECTS alGenEffects = NULL;
 LPALDELETEEFFECTS alDeleteEffects = NULL;
 LPALEFFECTI alEffecti = NULL;

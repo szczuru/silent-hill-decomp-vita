@@ -2768,6 +2768,13 @@ void GR_SetOffscreenState(const RECT16* offscreenRect, int enable)
 #define PSYX_HAS_POSTPROCESS 0
 #endif
 
+/* Set nonzero by the Brightness screen so GR_PostProcess overlays the reference
+ * bar; cleared when it exits. Defined unconditionally (not gated behind
+ * PSYX_HAS_POSTPROCESS below): the Brightness screen (options.c) writes this
+ * on every platform regardless of whether post-process is actually available
+ * to read it back (e.g. OGLES_VERSION 2 / vitaGL), so it must always exist. */
+extern "C" { int g_cfg_calibBar = 0; }
+
 #if PSYX_HAS_POSTPROCESS
 
 static ShaderID g_postShader = (ShaderID)-1;
@@ -2782,9 +2789,6 @@ static GLint    g_postLoc_contrast = -1;
 static GLint    g_postLoc_satur = -1;
 static GLint    g_postLoc_calib = -1;
 
-/* Set nonzero by the Brightness screen so GR_PostProcess overlays the reference
- * bar; cleared when it exits. */
-extern "C" { int g_cfg_calibBar = 0; }
 static GLuint   g_postVAO = 0;
 static GLuint   g_postFBO = 0;
 static TextureID g_postTex = (TextureID)-1;

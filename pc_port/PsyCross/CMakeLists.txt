@@ -55,7 +55,16 @@ if(VITA)
     # lib + header pair installed under $VITASDK/arm-vita-eabi by vdpm.
     # vitaShaRK (+ SceShaccCgExt) is vitaGL's own runtime shader-compiler
     # dependency (translates the GLSL vitaGL receives into SCE GXM shaders).
-    target_link_libraries(psycross_static PUBLIC vitaGL vitashark SceShaccCgExt mathneon)
+    # Plain (non-keyword) signature to match the SDL2 call just above --
+    # target_link_libraries can't mix plain and keyword calls on one target.
+    # SceShaccCg_stub: vitaShaRK's runtime GLSL->GXM shader compiler calls
+    # into the system's shader compiler module (sceShaccCg*) directly, not
+    # just through the vitaShaRK/SceShaccCgExt wrapper libs.
+    # SceKernelDmacMgr_stub: vitaGL uses the DMAC (sceDmacMemcpy) for fast
+    # buffer uploads/copies (glBufferSubData, mipmap generation, ...).
+    # taihen_stub: SceShaccCgExt hooks/patches the system shader compiler at
+    # runtime (extension enable/disable) via taihen.
+    target_link_libraries(psycross_static vitaGL vitashark SceShaccCgExt mathneon SceShaccCg_stub SceKernelDmacMgr_stub taihen_stub)
 endif()
 
 find_package(OpenAL REQUIRED)
@@ -80,4 +89,15 @@ if(OpenAL_SOURCE_DIR)
 endif()
 if(OPENAL_INCLUDE_DIR)
     target_include_directories(psycross_static PRIVATE ${OPENAL_INCLUDE_DIR})
+endif()
+
+if(VITA)
+    # vitasdk's libpthread must come after libopenal.a (openal-soft's mixer
+    # thread/locking) and libstdc++/libgcc (std::locale, emutls) in final
+    # link order -- this single-pass ARM linker only resolves symbols in
+    # libraries it hasn't scanned yet, so pthread has to be added here
+    # (right after OpenAL, closest consumer) rather than once on the final
+    # SilentHillPC executable target (which would place it too early,
+    # before OpenAL/libstdc++ are even linked in).
+    target_link_libraries(psycross_static pthread)
 endif()
