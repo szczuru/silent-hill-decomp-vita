@@ -173,8 +173,13 @@ extern int							PsyX_MapWindowToViewport(int mx, int my, float* outFracX, float
  * externally-provided stream — the host owns its handle. */
 extern void PsyX_Log_SetStream(FILE* stream);
 
-/* Usually called at the beginning of main function */
-extern void PsyX_Initialise(char* windowName, int screenWidth, int screenHeight, int fullscreen);
+/* Usually called at the beginning of main function. Returns 1 on success,
+ * 0 if any subsystem (window/GL context/PSX core/PSX GPU) failed to
+ * initialise -- on failure, PsyX_Shutdown() has ALREADY been called
+ * internally (window/GL context torn down), so the caller must not touch
+ * any PsyX/GL state and must not call PsyX_Shutdown() again; it should log
+ * the failure and exit instead of continuing. */
+extern int PsyX_Initialise(char* windowName, int screenWidth, int screenHeight, int fullscreen);
 
 /* Cleans all resources and closes open instances */
 extern void PsyX_Shutdown(void);

@@ -776,7 +776,15 @@ int main(int argc, char* argv[])
 
     /* Initialize PsyCross (creates SDL2 window + OpenGL context) */
     SH_LOG("Initializing PsyCross (SDL2 + OpenGL)...");
-    PsyX_Initialise("Silent Hill", windowWidth, windowHeight, g_PcConfig.fullscreen);
+    if (!PsyX_Initialise("Silent Hill", windowWidth, windowHeight, g_PcConfig.fullscreen))
+    {
+        /* PsyX_Initialise already called PsyX_Shutdown() internally on any
+         * failure path -- window/GL context (if any) are already torn down,
+         * so falling through into glGetString() below would touch a
+         * nonexistent GL context. */
+        SH_WARN("PsyX_Initialise failed -- see log above for which subsystem. Exiting.");
+        return 1;
+    }
 
     SH_LOG("PsyCross initialized. Window: %dx%d", windowWidth, windowHeight);
 

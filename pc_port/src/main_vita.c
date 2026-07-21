@@ -447,7 +447,22 @@ int main(int argc, char* argv[])
     PsyX_Log_SetStream(g_PcConfig.enableDebugLog ? g_ShDebugLog : NULL);
 
     SH_LOG("Initializing PsyCross (SDL2 + vitaGL)...");
-    PsyX_Initialise("Silent Hill", windowWidth, windowHeight, 1 /* fullscreen: always, see note above */);
+    if (!PsyX_Initialise("Silent Hill", windowWidth, windowHeight, 1 /* fullscreen: always, see note above */))
+    {
+        /* PsyX_Initialise already called PsyX_Shutdown() internally on any
+         * failure path (window/GL context/PSX core/PSX GPU) -- the window
+         * and GL context (if any) are already torn down at this point, so
+         * touching GL (glGetString below) or any PsyX API here would be
+         * touching a state that no longer exists. This is very likely what
+         * an unconfirmed hardware crash (immediate, no crash dump -- a
+         * controlled kernel/module-manager error, not a memory fault) was
+         * hitting: the previous code ignored a void return here and fell
+         * straight into glGetString() on a GL context that vitaGL/vitaShaRK
+         * never finished setting up (e.g. missing libshacccg.suprx). */
+        SH_WARN("PsyX_Initialise failed -- see log above for which subsystem. Exiting.");
+        sceKernelExitProcess(0);
+        return 0;
+    }
     SH_LOG("PsyCross initialized. Window: %dx%d", windowWidth, windowHeight);
 
     {
