@@ -1209,7 +1209,7 @@ void WorldGfx_CharaModelTransparentSet(e_CharaId charaId, bool enableTransparenc
     LoadImage(&rect, &data);
 }
 
-void WorldGfx_CharaModelMaterialSet(s32 charaId, s32 blendMode) // 0x8003D550
+void WorldGfx_CharaModelMaterialSet(e_CharaId charaId, s32 blendMode) // 0x8003D550
 {
     s_CharaModel* model;
 

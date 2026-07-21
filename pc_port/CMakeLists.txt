@@ -22,6 +22,19 @@ option(SH_ASAN "Enable AddressSanitizer for memory corruption detection" OFF)
 option(SH_FMV_FFMPEG "Enable ffmpeg FMV fallback decoder (h264/h265/vp9/av1, mp4/mkv/webm)" ON)
 
 # =============================================================================
+# PS Vita cross-compile detection
+# =============================================================================
+# VITA is set True by vitasdk's toolchain file (vita.toolchain.cmake) when
+# cross-compiling with -DCMAKE_TOOLCHAIN_FILE=$VITASDK/share/vita.toolchain.cmake.
+if(VITA)
+    # No runtime dlopen()-equivalent for the ffmpeg-fallback path or map DLLs
+    # on this platform (see dll_loader.c) -- disable both up front so the rest
+    # of this file doesn't have to special-case them.
+    set(SH_FMV_FFMPEG OFF CACHE BOOL "" FORCE)
+    set(SH_BUILD_MAP_DLLS OFF CACHE BOOL "" FORCE)
+endif()
+
+# =============================================================================
 # Version defines - default to USA
 # =============================================================================
 set(SH_VERSION "USA" CACHE STRING "Game version (USA, EUR, JAP0, JAP1, JAP2)")
@@ -161,6 +174,13 @@ file(GLOB_RECURSE PC_PORT_SOURCES
 # =============================================================================
 # Exclude map overlay stub since we now compile map0_s00 which provides g_MapOverlayHeader
 list(FILTER PC_PORT_SOURCES EXCLUDE REGEX "map_overlay_stub\\.c$")
+# Exactly one platform entry point compiles in: main_vita.c on Vita,
+# main_pc.c everywhere else (Windows/Linux/macOS).
+if(VITA)
+    list(FILTER PC_PORT_SOURCES EXCLUDE REGEX "main_pc\\.c$")
+else()
+    list(FILTER PC_PORT_SOURCES EXCLUDE REGEX "main_vita\\.c$")
+endif()
 # PC PORT: drop the combat_target.c aiming shim; the real decompiled func_8005CD38
 # (src/bodyprog/bodyprog_combat_8005BF38.c) now provides target selection.
 list(FILTER PC_PORT_SOURCES EXCLUDE REGEX "combat_target\\.c$")
@@ -452,7 +472,16 @@ if(SH_FMV_FFMPEG)
     endif()
 endif()
 
-if(WIN32)
+if(VITA)
+    # vitaGL IS the GL implementation here (see PsyCross/CMakeLists.txt,
+    # which links psycross_static to it) -- there is no separate system GL
+    # library to find/link on this platform.
+    target_link_libraries(SilentHillPC PRIVATE
+        SceAppMgr_stub SceAudio_stub SceAudioIn_stub SceCommonDialog_stub
+        SceCtrl_stub SceDisplay_stub SceGxm_stub SceHid_stub SceMotion_stub
+        SceSysmodule_stub SceTouch_stub taihen_stub
+    )
+elseif(WIN32)
     target_link_libraries(SilentHillPC PRIVATE opengl32 winmm m)
 elseif(UNIX)
     find_package(OpenGL REQUIRED)

@@ -45,6 +45,47 @@ const char* DllLoader_GetError(void)
     return s_errorBuf;
 }
 
+#elif defined(__vita__)
+/*
+ * PS Vita: no dlopen()-equivalent for loading arbitrary native code at
+ * runtime in the stock newlib/vitasdk environment (unlike Linux/macOS/
+ * Windows). This first port milestone follows the same path the default
+ * desktop PC build already uses: only map0_s00 is compiled directly into
+ * the executable (SH_BUILD_MAP_DLLS is OFF by default there too — see
+ * pc_port/CMakeLists.txt) and MapOverlay_Load already handles a load
+ * failure for any other map by logging and returning NULL.
+ *
+ * A follow-up port milestone can revisit this to dynamically load the
+ * other 42 map overlays via kubridge (which allows mapping+relocating a
+ * SELF/velf at runtime with kernel help) instead of statically linking all
+ * of them into one executable (which hits the same 500+ symbol collisions
+ * the desktop build's comment above describes).
+ */
+static char s_vitaDllError[128] = "dynamic module loading is not supported on this platform";
+
+DllHandle DllLoader_Open(const char* path)
+{
+    (void)path;
+    return NULL;
+}
+
+void* DllLoader_GetSymbol(DllHandle handle, const char* name)
+{
+    (void)handle;
+    (void)name;
+    return NULL;
+}
+
+void DllLoader_Close(DllHandle handle)
+{
+    (void)handle;
+}
+
+const char* DllLoader_GetError(void)
+{
+    return s_vitaDllError;
+}
+
 #else /* POSIX */
 #include <dlfcn.h>
 

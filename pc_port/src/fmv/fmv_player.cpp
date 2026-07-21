@@ -20,7 +20,13 @@
 #include <PsyX/PsyX_public.h>
 #include <PsyX/PsyX_render.h>
 #include <PsyX/util/timer.h>
+#if !defined(__vita__)
+/* PsyX_render.h already pulls in the right GL headers for every platform
+ * (vitaGL.h on __vita__, system GLES headers on Android/RPi/Emscripten);
+ * glad.h is the desktop GL loader and is only meaningful (and only safe to
+ * double-include) there. */
 #include <PsyX/common/glad.h>
+#endif
 
 #include <psx/libgpu.h>
 #include <psx/libetc.h>
@@ -287,7 +293,16 @@ static void SaveGLState(FmvGLState* s)
     glGetIntegerv(GL_ACTIVE_TEXTURE, &s->active_texture);
     glGetIntegerv(GL_TEXTURE_BINDING_2D, &s->bound_texture);
     glGetIntegerv(GL_CURRENT_PROGRAM, &s->current_program);
+#if !defined(__vita__)
     glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &s->bound_vao);
+#else
+    /* vitaGL has no GL_VERTEX_ARRAY_BINDING query (no glGetIntegerv case for
+     * it) -- see RestoreGLState, which skips the corresponding
+     * glBindVertexArray restore on this platform. FMV playback only ever
+     * touches its own VAO (s_fmvVAO) between Save/Restore, so there's
+     * nothing else that could be left bound to restore anyway. */
+    s->bound_vao = 0;
+#endif
     glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &s->bound_vbo);
 }
 
@@ -302,7 +317,9 @@ static void RestoreGLState(const FmvGLState* s)
     glActiveTexture(s->active_texture);
     glBindTexture(GL_TEXTURE_2D, s->bound_texture);
     glUseProgram(s->current_program);
+#if !defined(__vita__)
     glBindVertexArray(s->bound_vao);
+#endif
     glBindBuffer(GL_ARRAY_BUFFER, s->bound_vbo);
 }
 

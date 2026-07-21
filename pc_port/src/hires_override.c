@@ -17,7 +17,9 @@
 #include "sh_log.h"
 #include "pc_config.h"
 
-#include <PsyX/common/glad.h>
+/* PsyX_render.h selects the right GL headers per platform (glad.h on
+ * desktop, vitaGL.h on __vita__, system GLES on Android/RPi/Emscripten). */
+#include <PsyX/PsyX_render.h>
 
 #define MAX_HIRES_OVERRIDES 256
 

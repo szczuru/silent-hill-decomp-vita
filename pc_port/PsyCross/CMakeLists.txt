@@ -50,6 +50,14 @@ find_package(SDL2 REQUIRED)
 target_link_libraries(psycross_static ${SDL2_LIBRARIES})
 target_include_directories(psycross_static PRIVATE ${SDL2_INCLUDE_DIRS})
 
+if(VITA)
+    # vitaGL: not a system/portlib find_package target, just a plain static
+    # lib + header pair installed under $VITASDK/arm-vita-eabi by vdpm.
+    # vitaShaRK (+ SceShaccCgExt) is vitaGL's own runtime shader-compiler
+    # dependency (translates the GLSL vitaGL receives into SCE GXM shaders).
+    target_link_libraries(psycross_static PUBLIC vitaGL vitashark SceShaccCgExt mathneon)
+endif()
+
 find_package(OpenAL REQUIRED)
 # find_package(OpenAL) exposes different handles depending on how OpenAL was
 # found: the imported target OpenAL::OpenAL (openal-soft's CMake config, or

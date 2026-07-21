@@ -14,8 +14,10 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <SDL.h>
-#include <PsyX/common/glad.h>
-#include <PsyX/PsyX_render.h> /* GR_SetPsxDisplayBuffers */
+/* PsyX_render.h selects the right GL headers per platform (glad.h on
+ * desktop, vitaGL.h on __vita__, system GLES on Android/RPi/Emscripten);
+ * also declares GR_SetPsxDisplayBuffers. */
+#include <PsyX/PsyX_render.h>
 #include "sh_log.h"
 
 /* Screenshot helper - captures back buffer (call before EndScene/swap) */
