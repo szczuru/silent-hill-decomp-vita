@@ -1,0 +1,81 @@
+name: Build PS Vita Port
+
+# Builds the PS Vita port (vitaGL + kubridge/vdpm toolchain) and packages an
+# installable .vpk. Unlike the desktop PC port builds, this one is meant to
+# gate every push/PR to this fork (github.repository check omitted on
+# purpose) so a broken Vita build is caught immediately, not just on a
+# release branch.
+#
+# First public build slot (see docs/vita_port.md): only the starting map
+# (map0_s00) is statically linked in -- same limitation the default desktop
+# CMake build has (SH_BUILD_MAP_DLLS is off there too). No sce_sys/ icon or
+# LiveArea art yet, so VitaShell shows the default icon for this title.
+
+on:
+  push:
+    branches:
+      - feature/vita-port
+      - pc-port
+    paths-ignore:
+      - '**.md'
+      - 'pc_port/launcher/**'
+  pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'pc_port/launcher/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # vitasdk/vitasdk ships the arm-vita-eabi-gcc/g++ toolchain, vita-elf-create,
+    # vita-make-fself, vita-mksfoex and vita-pack-vpk pre-installed at
+    # $VITASDK (/usr/local/vitasdk); vdpm (installed below) adds the
+    # portlibs this port needs on top (vitaGL, SDL2, OpenAL, ...).
+    container:
+      image: vitasdk/vitasdk:latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # vdpm is vitasdk's package manager for prebuilt portlibs (community
+      # binary packages, not built from source here). kubridge is fetched
+      # for a follow-up milestone (dynamic map-overlay loading -- see
+      # dll_loader.c); not linked by this build yet.
+      - name: Install vitasdk portlibs (vdpm)
+        run: |
+          set -euo pipefail
+          git clone --depth=1 https://github.com/vitasdk/vdpm.git /tmp/vdpm
+          cd /tmp/vdpm
+          for pkg in kubridge vitaShaRK vitaGL sdl2 openal-soft libjpeg-turbo zlib libpng freetype; do
+            ./vdpm -f "$pkg"
+          done
+
+      - name: Configure (CMake + vitasdk toolchain)
+        run: |
+          set -euo pipefail
+          cd pc_port
+          cmake -B build_vita -G "Unix Makefiles" \
+            -DCMAKE_TOOLCHAIN_FILE="$VITASDK/share/vita.toolchain.cmake" \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build (SilentHillPC -> .self -> .vpk)
+        run: |
+          set -euo pipefail
+          cd pc_port/build_vita
+          make -j"$(nproc)"
+
+      - name: Verify .vpk was produced
+        run: |
+          set -euo pipefail
+          ls -la pc_port/build_vita/SilentHillPC.vpk
+          unzip -l pc_port/build_vita/SilentHillPC.vpk
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SilentHillVita
+          path: pc_port/build_vita/SilentHillPC.vpk
+          if-no-files-found: error
+          retention-days: 90
