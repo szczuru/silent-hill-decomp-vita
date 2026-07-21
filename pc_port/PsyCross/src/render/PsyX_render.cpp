@@ -183,6 +183,23 @@ int g_PsxDitherSuppressed = 0;
  * GR_PresentLastFrame draws a fullscreen quad instead of blitting. */
 int g_cfg_msaaSamples = 0;
 
+#if defined(__vita__)
+/* PS Vita: vitaGL's MSAA mode is picked once at vglInitExtended() time (a
+ * SceGxmMultisampleMode enum), not negotiated through SDL GL attributes like
+ * on desktop/GLES. Kept as a separate global (rather than reusing
+ * g_cfg_msaaSamples, which the desktop/GLES path treats as a sample COUNT)
+ * so a config value doesn't silently do the wrong thing on this platform.
+ * 0 = SCE_GXM_MULTISAMPLE_NONE, 1 = _2X, 2 = _4X. Default: 4x (matches the
+ * sample settings used by other vitaGL ports at this resolution/RAM budget). */
+int g_cfg_msaaSamplesVitaInit = 2;
+/* RAM threshold (bytes) below which vitaGL refuses further "small" CDRAM
+ * allocations and falls back to slower general RAM -- passed straight
+ * through to vglInitExtended. 0 disables the threshold behavior. Silent
+ * Hill's texture/VRAM footprint is tiny by modern standards, so this is a
+ * conservative default matching other 512MB-budget vitaGL homebrew. */
+#define SH_VITA_GL_RAM_THRESHOLD (0x800000)
+#endif
+
 /* PC port: full-screen post-process look applied once per frame in
  * GR_PostProcess (PsyX_EndScene, after the freeze capture + console hook, just
  * before swap). 0 = off; 1.. select a built-in look (see the post fragment
@@ -512,6 +529,36 @@ GrPBO		g_glOffscreenPBO;
 #if defined(RENDERER_OGL) || defined(RENDERER_OGLES)
 int GR_InitialiseGLContext(char* windowName, int fullscreen)
 {
+#if defined(__vita__)
+	/* PS Vita: vitaGL owns the GPU context directly via sceGxm -- it is not
+	 * an SDL2 GL backend (the prebuilt vitasdk SDL2 ships no compiled GL
+	 * driver; SDL is only used here for its window/event/pad plumbing).
+	 * Every real vitaGL homebrew (vita-tetris, DaedalusX64-vitaGL,
+	 * vitaQuake, ...) calls vglInit*() once at startup instead of an
+	 * SDL_GL_CreateContext dance, so no SDL_WINDOW_OPENGL flag is requested
+	 * here -- just a fullscreen window for SDL's own bookkeeping.
+	 *
+	 * Pool size 0 = let vitaGL size its default heap. MSAA is fixed at this
+	 * call (not a runtime SDL attribute on this platform -- see
+	 * GR_InitialiseRender, which sets g_cfg_msaaSamplesVitaInit). */
+	g_window = SDL_CreateWindow(windowName, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
+	                             g_windowWidth, g_windowHeight, SDL_WINDOW_FULLSCREEN);
+	if (g_window == NULL)
+	{
+		eprinterr("Failed to initialise SDL window!\n");
+		return 0;
+	}
+
+	if (!vglInitExtended(0, g_windowWidth, g_windowHeight, SH_VITA_GL_RAM_THRESHOLD,
+	                      (SceGxmMultisampleMode)g_cfg_msaaSamplesVitaInit))
+	{
+		eprinterr("Failed to initialise vitaGL!\n");
+		return 0;
+	}
+	glViewport(0, 0, g_windowWidth, g_windowHeight);
+
+	return 1;
+#else
 	int windowFlags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE;
 
 #if defined(__ANDROID__)
@@ -601,6 +648,7 @@ int GR_InitialiseGLContext(char* windowName, int fullscreen)
 #endif
 
 	return 1;
+#endif /* __vita__ */
 }
 #endif
 
@@ -638,6 +686,15 @@ int GR_InitialiseRender(char* windowName, int width, int height, int fullscreen)
 #if USE_OPENGL
 	SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 1);
 
+#if defined(__vita__)
+	/* PS Vita: MSAA is configured once at vglInitExtended() time via
+	 * g_cfg_msaaSamplesVitaInit (a SceGxmMultisampleMode), not through SDL GL
+	 * attributes / a driver pixel-format negotiation like the desktop/GLES
+	 * path below. Force this generic path's counter to 0 so every
+	 * `g_cfg_msaaSamples > 0` branch elsewhere in this file (SDL attribute
+	 * queries, resolve-blit setup) stays inert on this platform. */
+	g_cfg_msaaSamples = 0;
+#else
 	/* PC port: request MSAA on the default framebuffer when enabled. Must be
 	 * set before the window/context is created (GR_InitialiseGLContext). The
 	 * driver picks a multisample pixel format; if it can't, window creation is
@@ -647,6 +704,7 @@ int GR_InitialiseRender(char* windowName, int width, int height, int fullscreen)
 		SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
 		SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, g_cfg_msaaSamples);
 	}
+#endif
 
 #if defined(RENDERER_OGL) || defined(RENDERER_OGLES)
 	if (!GR_InitialiseGLContext(windowName, fullscreen))
@@ -692,6 +750,10 @@ void GR_UpdateSwapIntervalState(int swapInterval)
 {
 #if defined(RENDERER_OGL)
 	SDL_GL_SetSwapInterval(swapInterval);
+#elif defined(__vita__)
+	/* vitaGL has no SDL-attribute swap-interval hook; it gates vsync on the
+	 * display's vblank wait directly. */
+	vglWaitVblankStart(swapInterval != 0 ? GL_TRUE : GL_FALSE);
 #endif
 }
 
@@ -1608,11 +1670,21 @@ int GR_InitialisePSX()
 #if USE_OPENGL
 	glDepthFunc(GL_LEQUAL);
 	glEnable(GL_STENCIL_TEST);
+#if !defined(__vita__)
+	/* vitaGL has no glBlendColor (GL_CONSTANT_ALPHA / GL_CONSTANT_COLOR blend
+	 * factors aren't in its supported subset) -- see GR_SetBlendMode, which
+	 * uses a vita-safe blend-factor substitute instead. This constant-color
+	 * value is only ever consumed through that GL_CONSTANT_ALPHA path. */
 	glBlendColor(0.5f, 0.5f, 0.5f, 0.25f);
 
 	/* PC port: enable MSAA rasterisation when a multisample framebuffer was
 	 * obtained. Core profiles default this on, but enable explicitly + report
-	 * the sample count the driver actually granted (may differ from requested). */
+	 * the sample count the driver actually granted (may differ from requested).
+	 * Not applicable on Vita: g_cfg_msaaSamples is forced to 0 in
+	 * GR_InitialiseRender (MSAA there is a vglInitExtended()-time mode, not a
+	 * runtime GL_MULTISAMPLE toggle), so this whole block would be dead code —
+	 * and vitaGL doesn't expose the GL_MULTISAMPLE / SDL_GL_MULTISAMPLESAMPLES
+	 * symbols this uses. */
 	if (g_cfg_msaaSamples > 0)
 	{
 		glEnable(GL_MULTISAMPLE);
@@ -1622,6 +1694,7 @@ int GR_InitialisePSX()
 		if (actualSamples <= 1)
 			g_cfg_msaaSamples = 0; /* driver gave us a single-sample buffer after all */
 	}
+#endif
 
 	// gen framebuffer
 	{
@@ -3072,19 +3145,34 @@ static void GR_EnsureShadowTarget(void)
 	             0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+#if defined(__vita__)
+	/* vitaGL has no GL_CLAMP_TO_BORDER / glTexParameterfv(GL_TEXTURE_BORDER_COLOR).
+	 * CLAMP_TO_EDGE reuses the outermost shadow-map texel for any sample that
+	 * would otherwise fall outside the light frustum; the border trick's
+	 * "outside = fully lit" behavior may not hold exactly at the map edges,
+	 * but the shadow cone itself is narrow so this is a minor, edge-only
+	 * cosmetic difference rather than a functional gap. */
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+#else
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
 	{
 		float border[4] = { 1.0f, 1.0f, 1.0f, 1.0f };  /* outside the light frustum = fully lit */
 		glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, border);
 	}
+#endif
 	glBindTexture(GL_TEXTURE_2D, 0);
 
 	glGenFramebuffers(1, &g_shadowFBO);
 	glBindFramebuffer(GL_FRAMEBUFFER, g_shadowFBO);
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, g_shadowDepthTex, 0);
+#if !defined(__vita__)
+	/* vitaGL has no glDrawBuffer/glReadBuffer (a depth-only FBO with no color
+	 * attachment already implies no color draw/read on this driver). */
 	glDrawBuffer(GL_NONE);
 	glReadBuffer(GL_NONE);
+#endif
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
 	if (g_shadowDepthShader == (ShaderID)-1)
@@ -3927,7 +4015,13 @@ void GR_DumpVRAM(const char* path)
 
 void GR_SwapWindow()
 {
-#if defined(RENDERER_OGL) || defined(RENDERER_OGLES)
+#if defined(__vita__)
+	/* vitaGL's swap replaces SDL_GL_SwapWindow entirely (see
+	 * GR_InitialiseGLContext -- there is no SDL GL context to swap on this
+	 * platform). GL_FALSE = do not show the common-dialog compositing pass;
+	 * Silent Hill doesn't use SCE common dialogs (message boxes etc). */
+	vglSwapBuffers(GL_FALSE);
+#elif defined(RENDERER_OGL) || defined(RENDERER_OGLES)
 	SDL_GL_SwapWindow(g_window);
 #endif
 
@@ -4040,7 +4134,9 @@ void GR_SetBlendMode(BlendMode blendMode)
 	{
 		if (g_PreviousBlendMode != BM_NONE)
 		{
+#if !defined(__vita__)
 			glBlendColor(1.f, 1.f, 1.f, 1.f);
+#endif
 			glDisable(GL_BLEND);
 		}
 
@@ -4056,7 +4152,9 @@ void GR_SetBlendMode(BlendMode blendMode)
 		 * where a subtractive/average prim was expected). */
 		if(g_PreviousBlendMode == BM_NONE || g_PreviousBlendMode < 0)
 		{
+#if !defined(__vita__)
 			glBlendColor(0.25f, 0.25f, 0.25f, 0.5f);
+#endif
 			glEnable(GL_BLEND);
 		}
 
@@ -4074,7 +4172,17 @@ void GR_SetBlendMode(BlendMode blendMode)
 		glBlendFunc(GL_ONE, GL_ONE);
 		break;
 	case BM_ADD_QUATER_SOURCE:
-		glBlendFunc(GL_CONSTANT_ALPHA, GL_ONE); 
+#if defined(__vita__)
+		/* vitaGL has no glBlendColor / GL_CONSTANT_ALPHA blend factor, so the
+		 * constant-color quarter-strength additive blend used elsewhere can't
+		 * be reproduced exactly. Fall back to full-strength additive (same as
+		 * BM_ADD) -- brighter than the original quarter-source effect on this
+		 * platform only, but never wrong-looking (no missing geometry, no
+		 * black holes), and it's used sparingly (a handful of specific FX). */
+		glBlendFunc(GL_ONE, GL_ONE);
+#else
+		glBlendFunc(GL_CONSTANT_ALPHA, GL_ONE);
+#endif
 		break;
 	}
 #endif

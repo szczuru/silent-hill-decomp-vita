@@ -6,7 +6,7 @@
 /*
  * Platform specific emulator setup
  */
-#if (defined(_WIN32) || defined(__APPLE__) || defined(__linux__)) && !defined(__ANDROID__) && !defined(__EMSCRIPTEN__) && !defined(__RPI__)
+#if (defined(_WIN32) || defined(__APPLE__) || defined(__linux__)) && !defined(__ANDROID__) && !defined(__EMSCRIPTEN__) && !defined(__RPI__) && !defined(__vita__)
 #   define RENDERER_OGL
 #   define USE_GLAD
 #elif defined(__RPI__)
@@ -18,6 +18,11 @@
 #elif defined(__ANDROID__)
 #   define RENDERER_OGLES
 #   define OGLES_VERSION (3)
+#elif defined(__vita__)
+/* PS Vita: vitaGL exposes an OpenGL ES 2.0-shaped API translated to sceGxm.
+ * Uses the same ES2_SHADERS GLSL header path as Emscripten/GLES2 below. */
+#   define RENDERER_OGLES
+#   define OGLES_VERSION (2)
 #endif
 
 #if defined(RENDERER_OGL) || defined(RENDERER_OGLES)
@@ -50,6 +55,11 @@
 
 #if defined(USE_GLAD)
 #   include "common/glad.h"
+#elif defined(__vita__)
+/* vitaGL provides its own self-contained GL ES-shaped API (declares its own
+ * GLuint/GLenum/etc. and the gl* entry points) — no system GLES headers and
+ * no EGL exist on the Vita toolchain, so this replaces both below. */
+#   include <vitaGL.h>
 #else
 #   ifdef __EMSCRIPTEN__
 #      include <GL/gl.h>
@@ -63,7 +73,9 @@
 #   endif
 #endif
 
+#if !defined(__vita__)
 #   include <EGL/egl.h>
+#endif
 
 #endif
 
