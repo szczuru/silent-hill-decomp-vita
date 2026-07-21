@@ -337,9 +337,29 @@ int main(int argc, char* argv[])
         {
             freopen(SH_LogPath(), "a", stdout);
             freopen(SH_LogPath(), "a", stderr);
-            setvbuf(stdout, NULL, _IONBF, 0);
-            setvbuf(stderr, NULL, _IONBF, 0);
         }
+
+        /* Unconditionally unbuffer stdout/stderr, regardless of
+         * enableDebugLog. SH_LOG (used all over main()/PsyX_Initialise/
+         * MapRegistry_Init/MainLoop) is just printf() -> stdout, and
+         * stdio defaults to a large block-buffered stdout when it isn't a
+         * detected terminal (which describes Vita's tty0: device from
+         * inside an emulator/homebrew loader). On a hard crash (e.g. a
+         * native EXCEPTION_ACCESS_VIOLATION) nothing ever flushes that
+         * buffer, so every single SH_LOG line since boot -- not just the
+         * last one before the crash -- silently vanishes, making crash
+         * logs look like the game died right after whatever the last
+         * *unbuffered* (stderr) message happened to be, even if it
+         * actually ran for seconds afterwards. This previously only ran
+         * inside the freopen'd-to-a-file branch above, so a release
+         * config (enableDebugLog=0, the default -- e.g. no config.cfg on
+         * a fresh install) always hit this blind spot. Unbuffering here
+         * costs nothing but a few TTY writes, and turns the default,
+         * no-config-file case (the one actual crash reports come from)
+         * from "no usable log output" into "full boot trace up to the
+         * exact crashing call". */
+        setvbuf(stdout, NULL, _IONBF, 0);
+        setvbuf(stderr, NULL, _IONBF, 0);
 
         {
             extern void DbgOverlay_PushLine(const char* line);
