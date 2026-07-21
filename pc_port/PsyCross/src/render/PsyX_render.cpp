@@ -549,8 +549,29 @@ int GR_InitialiseGLContext(char* windowName, int fullscreen)
 		return 0;
 	}
 
-	if (!vglInitExtended(0, g_windowWidth, g_windowHeight, SH_VITA_GL_RAM_THRESHOLD,
-	                      (SceGxmMultisampleMode)g_cfg_msaaSamplesVitaInit))
+	/* TEMP DIAGNOSTIC (unbuffered, bypasses PsyX_Log entirely so it survives
+	 * even with enable_debug_log=0 and can't be lost to log-writer reordering
+	 * on Vita3K): bracket the ONLY vglInitExtended()/sceGxmCreateContext call
+	 * site in this codebase so we can see, unambiguously, whether the call
+	 * itself returns before anything else runs, and whether GR_InitialiseGLContext
+     * is ever entered more than once in a single process lifetime. Remove
+	 * once the ALREADY_INITIALIZED root cause is confirmed. */
+	{
+		static int s_glContextInitCallCount = 0;
+		fprintf(stderr, "[SH-DIAG] GR_InitialiseGLContext ENTER, call #%d\n", ++s_glContextInitCallCount);
+		fflush(stderr);
+	}
+
+	fprintf(stderr, "[SH-DIAG] about to call vglInitExtended...\n");
+	fflush(stderr);
+
+	int vglOk = vglInitExtended(0, g_windowWidth, g_windowHeight, SH_VITA_GL_RAM_THRESHOLD,
+	                             (SceGxmMultisampleMode)g_cfg_msaaSamplesVitaInit);
+
+	fprintf(stderr, "[SH-DIAG] vglInitExtended returned %d\n", vglOk);
+	fflush(stderr);
+
+	if (!vglOk)
 	{
 		eprinterr("Failed to initialise vitaGL!\n");
 		return 0;

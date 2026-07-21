@@ -706,6 +706,17 @@ int PsyX_Initialise(char* appName, int width, int height, int fullscreen)
 {
 	char windowNameStr[128];
 
+	/* TEMP DIAGNOSTIC (unbuffered stderr, see matching block in
+	 * GR_InitialiseGLContext / PsyX_render.cpp) -- confirms whether
+	 * PsyX_Initialise itself is ever entered more than once per process
+	 * lifetime, which would explain a stray sceGxmCreateContext -> ALREADY_
+	 * INITIALIZED on Vita/Vita3K. Remove once root-caused. */
+	{
+		static int s_initCallCount = 0;
+		fprintf(stderr, "[SH-DIAG] PsyX_Initialise ENTER, call #%d\n", ++s_initCallCount);
+		fflush(stderr);
+	}
+
 	g_appNameStr = appName;
 
 	std::set_terminate(sh_terminate_handler);
