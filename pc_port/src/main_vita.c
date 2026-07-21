@@ -322,9 +322,16 @@ int main(int argc, char* argv[])
         g_PcMenuPillarbox  = g_PcConfig.menuPillarbox;
     }
 
-    /* No external console on Vita; route stdout/stderr into the same log
-     * file (or the null device) so stray printf doesn't crash on a stdio
-     * handle that was never opened. */
+    /* No external console on Vita, and critically no /dev/null either (that
+     * path is a POSIX/Linux-Windows convention -- Vita's newlib only knows
+     * ux0:/app0:/ur0:/etc device prefixes). Per the C standard, freopen()
+     * closes the ORIGINAL stream even when it fails to open the new target,
+     * so the previous "else freopen(\"/dev/null\", ...)" branch (taken by
+     * default, since enableDebugLog defaults to 0) was leaving stdout/
+     * stderr closed from the very start of main() on real hardware --
+     * a very early, hard-to-diagnose failure. Only redirect when we have an
+     * actual, valid target (the log file); otherwise just leave the
+     * default stdio handles alone. */
     {
         if (g_PcConfig.enableDebugLog)
         {
@@ -332,11 +339,6 @@ int main(int argc, char* argv[])
             freopen(SH_LogPath(), "a", stderr);
             setvbuf(stdout, NULL, _IONBF, 0);
             setvbuf(stderr, NULL, _IONBF, 0);
-        }
-        else
-        {
-            freopen("/dev/null", "w", stdout);
-            freopen("/dev/null", "w", stderr);
         }
 
         {
