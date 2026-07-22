@@ -1,6 +1,8 @@
 asm/
 /assets/
 build/
+pc_port/build_vita/
+pc_port/build_vita*/
 rom/
 linkers/
 .vscode/

@@ -14,13 +14,39 @@
 #define DLL_EXT ".dll"
 #elif defined(__APPLE__)
 #define DLL_EXT ".dylib"
+#elif defined(__vita__)
+#define DLL_EXT ".suprx"
 #else
 #define DLL_EXT ".so"
+#endif
+
+#ifdef __vita__
+/* Maps are shipped on the memory card alongside the disc image/config, NOT
+ * bundled inside the .vpk (see docs/vita_port.md) -- same reasoning as the
+ * disc image: they're large, and re-packaging/re-signing the .vpk for every
+ * map addition/update would be needlessly slow. Must match
+ * main_vita.c's SH_VITA_DATA_DIR. */
+#define SH_VITA_MAPS_DIR "ux0:data/SILENTHILLVITA/maps"
 #endif
 
 /* Currently loaded overlay */
 static DllHandle s_currentDll = NULL;
 static char s_currentName[64] = { 0 };
+
+#ifdef __vita__
+/* PS Vita push-model registration slot: written by MapOverlay_VitaRegister,
+ * which a map module's module_start() calls (imported via the generated
+ * stub lib -- see vita_export/map_api_exports.yml and dll_loader.c). Cleared
+ * before each sceKernelLoadStartModule so a module that fails to call it
+ * (build/config mistake) is detected as a load failure rather than silently
+ * reusing the previous map's header. */
+static s_MapOverlayHdr* s_vitaPendingHeader = NULL;
+
+void MapOverlay_VitaRegister(s_MapOverlayHdr* header)
+{
+    s_vitaPendingHeader = header;
+}
+#endif
 
 /* The compiled-in map0_s00 (always available as fallback) */
 extern s_MapOverlayHdr g_MapOverlayHeader_map0_s00;
@@ -48,14 +74,28 @@ s_MapOverlayHdr* MapOverlay_Load(e_MapIdx id)
         return &g_MapOverlayHeader_map0_s00;
     }
 
-    /* Build DLL path: maps/<mapname>.dll */
+    /* Build DLL path: maps/<mapname>.dll (ux0:data/SILENTHILLVITA/maps/<mapname>.suprx on Vita) */
+#ifdef __vita__
+    snprintf(dllPath, sizeof(dllPath), "%s/%s%s", SH_VITA_MAPS_DIR, mapName, DLL_EXT);
+#else
     snprintf(dllPath, sizeof(dllPath), "maps/%s%s", mapName, DLL_EXT);
+#endif
 
-    /* Build symbol name: g_MapOverlayHeader_<mapname> */
+    /* Build symbol name: g_MapOverlayHeader_<mapname> (unused on Vita --
+     * push-model registration, see below) */
     snprintf(symbolName, sizeof(symbolName), "g_MapOverlayHeader_%s", mapName);
+    (void)symbolName;
 
     /* Unload previous overlay */
     MapOverlay_Unload();
+
+#ifdef __vita__
+    /* Vita has no dlsym()-equivalent for a loaded .suprx module -- the
+     * module pushes its header back to us instead, via module_start calling
+     * the imported MapOverlay_VitaRegister (see dll_loader.c). Clear the
+     * slot first so a module that doesn't call it is a detectable failure. */
+    s_vitaPendingHeader = NULL;
+#endif
 
     /* Load the DLL */
     s_currentDll = DllLoader_Open(dllPath);
@@ -65,6 +105,21 @@ s_MapOverlayHdr* MapOverlay_Load(e_MapIdx id)
         return NULL;
     }
 
+#ifdef __vita__
+    /* sceKernelLoadStartModule (inside DllLoader_Open) calls module_start
+     * synchronously and only returns once it's done, so the push-model
+     * registration has already happened by this point -- no GetSymbol call
+     * needed/possible on this platform. */
+    header = s_vitaPendingHeader;
+    if (!header)
+    {
+        SH_DBG("[MapOverlay] %s loaded but never called MapOverlay_VitaRegister "
+                "(build mistake in the module?)", dllPath);
+        DllLoader_Close(s_currentDll);
+        s_currentDll = NULL;
+        return NULL;
+    }
+#else
     /* Find the header symbol */
     header = (s_MapOverlayHdr*)DllLoader_GetSymbol(s_currentDll, symbolName);
     if (!header)
@@ -75,6 +130,7 @@ s_MapOverlayHdr* MapOverlay_Load(e_MapIdx id)
         s_currentDll = NULL;
         return NULL;
     }
+#endif
 
     /* Sanitize raw PSX addresses in the header. Many map headers have
      * un-decompiled function pointers stored as raw 0x800XXXXX values.
@@ -100,7 +156,11 @@ s_MapOverlayHdr* MapOverlay_Load(e_MapIdx id)
     }
 
     snprintf(s_currentName, sizeof(s_currentName), "%s", mapName);
+#ifdef __vita__
+    SH_DBG("[MapOverlay] Loaded %s from %s (push-registered)", mapName, dllPath);
+#else
     SH_DBG("[MapOverlay] Loaded %s from %s", symbolName, dllPath);
+#endif
     return header;
 }
 

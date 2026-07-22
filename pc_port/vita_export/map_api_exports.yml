@@ -1,0 +1,357 @@
+# =============================================================================
+# vita-elf-create export config for SilentHillPC (main executable).
+#
+# Lists every game-code symbol that map overlay .suprx modules need to import
+# at runtime (via sceKernelLoadStartModule's native relocation/import-binding,
+# NOT dlopen -- see dll_loader.c). This is a CURATED, MEASURED subset, not an
+# auto-export-everything list: vita-elf-create -g (auto-generate) hard-fails on
+# this exe's full ~12.7k global symbol table ("segment 1 overlaps" -- SCE's
+# per-module export table has practical size limits the full symbol set blows
+# through). This list was derived empirically: for each of the currently
+# enabled map overlays (see maps_vita/CMakeLists.txt), partial-link that map's
+# own object files together (resolves intra-map references), then `nm -u` the
+# result to find the TRUE external symbols it still needs -- the union of that
+# across all enabled maps is exactly this list (plus MapOverlay_VitaRegister,
+# the push-model registration glue function -- see dll_loader.c).
+#
+# Adding a new map overlay to maps_vita/CMakeLists.txt will likely need new
+# symbols added here too -- re-run the measurement (see docs/vita_port.md) and
+# add any newly-needed entries to the appropriate list below.
+# =============================================================================
+SilentHillPC:
+  attributes: 0
+  # process_image: true is REQUIRED for a normal executable (as opposed to a
+  # loadable library/module like the map .suprx files this same tool builds
+  # -- see maps_vita/module_config.yml.in, which correctly omits it). Without
+  # it, vita-elf-create still produces a VELF that boots, but the kernel
+  # module-manager treats it as a non-process-image module: sceGxmInitialize
+  # gets silently redirected to the VSH-internal sceGxmVshInitialize path
+  # (visible in a Vita3K log as "Stubbed sceGxmVshInitialize... (sceGxmInitialize)"),
+  # which then collides with the *real* sceGxmCreateContext call right after
+  # ("SCE_GXM_ERROR_ALREADY_INITIALIZED"), crashing on the bogus/half-built
+  # GXM context (EXCEPTION_ACCESS_VIOLATION reading offset 0x78 into it).
+  # This one-line omission is what broke the previously-working plain build
+  # the moment this yml got wired in as SilentHillPC's own -e CONFIG.
+  process_image: true
+  imagemodule: false
+  main:
+    start: _start
+  libraries:
+    SilentHillPC_map_api:
+      syscall: false
+      version: 0x1
+      functions:
+        - Anim_BlendLinear
+        - Anim_DurationGet
+        - Anim_IsBlendLinear
+        - Anim_IsPlaybackOnce
+        - Anim_PlaybackLoop
+        - Anim_PlaybackOnce
+        - Bgm_CrossfadeToTrack
+        - Bgm_TrackChange
+        - Bgm_Update
+        - CTC2
+        - Camera_LookAtSet
+        - Camera_PositionSet
+        - Chara_CollisionShapeOffsetsUpdate
+        - Chara_HeadingAngleGet
+        - Chara_Load
+        - Chara_ModelCharaIdClear
+        - Chara_NpcIdxGet
+        - Chara_ProcessLoads
+        - Chara_Spawn
+        - Chara_SpawnFlagsSet
+        - Collision_CharaCollisionSet
+        - Collision_GroundHeightGet
+        - Collision_SurfaceGet
+        - Collision_WallDetect
+        - Dms_CameraTargetGet
+        - Dms_CharacterTransformGet
+        - Dms_HeaderFixOffsets
+        - DrawSync
+        - Event_CommonItemTake
+        - Event_DisplayMapMsgWithSfx
+        - Event_ItemTake
+        - Event_MapTake
+        - Fs_QueueStartRead
+        - Fs_QueueStartReadTim
+        - Fs_QueueStartSeek
+        - Fs_QueueWaitForEmpty
+        - GameBoot_LoadScreen_BackgroundImg
+        - GameBoot_LoadScreen_PlayerRun
+        - Game_FlashlightIsOn
+        - Game_HyperBlasterBeamColorGet
+        - Game_TurnFlashlightOff
+        - Game_WarmBoot
+        - Gfx_MapInitMapEffectsUpdate
+        - GsInitCoordinate2
+        - GsSwapDispBuff
+        - LoadImage
+        - Los_CharaHitCheck
+        - Los_CharaToCharaDistCheck
+        - Los_NpcToPlayerHitCheck
+        - MFC2
+        - MTC2
+        - MapMsg_DisplayAndHandleSelection
+        - MapMsg_DisplayWithTexture
+        - MapMsg_DisplayWithTexture1
+        - MapOverlay_VitaRegister
+        - Map_MessageWithAudio
+        - Math_AngleNormalizeSigned
+        - Math_Cos
+        - Math_Distance2dGet
+        - Math_MatrixTransform
+        - Math_PreservedSignSubtract
+        - Math_RotMatrixXyxGte
+        - Math_RotMatrixZxyNegGte
+        - Math_ShortestAngleGet
+        - Math_Sin
+        - MulMatrix
+        - PGXP_StoreAddr
+        - PaperMap_ReuploadTimToVram_PC
+        - Player_FootstepSfxGet
+        - Player_FootstepSfxPlay
+        - Player_ItemRemove
+        - PopMatrix
+        - PsyX_CaptureGteDepths
+        - PushMatrix
+        - Ray_CharaTraceQuery
+        - Ray_LosHitCheck
+        - Ray_TraceQuery
+        - Rng_Rand16
+        - Rng_RandQ12
+        - SD_Call
+        - Savegame_EnemyStateUpdate
+        - ScaleMatrix
+        - Screen_BackgroundImgDraw
+        - Screen_BackgroundImgTransition
+        - Screen_Init
+        - Sd_PlaySfx
+        - Sd_SfxStop
+        - Sd_XaPreLoadAudioPreTaskAdd
+        - SetSp
+        - SquareRoot0
+        - SquareRoot12
+        - StoreImage
+        - SysWork_StateStepIncrementAfterFade
+        - SysWork_StateStepIncrementAfterTime
+        - SysWork_StateStepIncrementDelayed
+        - Text_Debug_Draw
+        - Text_Debug_PositionSet
+        - TransMatrix
+        - Vw_AabbVisibleInScreenCheck
+        - Vw_CoordHierarchyMatrixCompute
+        - Vw_CoordToWorldAndViewMatrices
+        - WorldEnv_LightPositionGet
+        - WorldEnv_LightRotationAndIntensityGet
+        - WorldGfx_HeldItemAttach
+        - WorldGfx_ObjectAdd
+        - WorldGfx_PlayerPrevHeldItem
+        - WorldObject_ModelNameSet
+        - __aeabi_idiv
+        - __aeabi_idivmod
+        - doCOP2
+        - fprintf
+        - func_8003A16C
+        - func_8003D01C
+        - func_8003D03C
+        - func_8003EDB8
+        - func_80044918
+        - func_80044950
+        - func_8004C564
+        - func_80055A50
+        - func_80055A90
+        - func_8005CB20
+        - func_8005DC1C
+        - func_8005DD44
+        - func_8005DE0C
+        - func_8005E7E0
+        - func_8005F6B0
+        - func_800622B8
+        - func_8006342C
+        - func_80064F04
+        - func_8006F250
+        - func_8006F99C
+        - func_8006FD90
+        - func_80070320
+        - func_80070360
+        - func_80071620
+        - func_8007FB94
+        - func_8007FC48
+        - func_8007FD2C
+        - func_80080478
+        - func_800805BC
+        - func_800808AC
+        - func_80085DF0
+        - func_80085EB8
+        - func_800862F8
+        - func_80086470
+        - func_80086E50
+        - func_80086F44
+        - func_800892A4
+        - func_800894B8
+        - func_8008A0E4
+        - func_8008A3E0
+        - ratan2
+        - vcChangeProjectionValue
+        - vcReturnPreAutoCamWork
+        - vcUserCamTarget
+        - vcUserWatchTarget
+        - vwGetViewAngle
+        - vwGetViewPosition
+      variables:
+        - CYBIL_ANIM_INFOS
+        - D_800A999C
+        - D_800A99B5
+        - D_800A99E4
+        - D_800A9A04
+        - D_800AD4C8
+        - D_800AF216
+        - D_800C39A0
+        - D_800C457C
+        - D_800C4588
+        - D_800C4590
+        - D_800C4606
+        - D_800DD718
+        - D_800DE250
+        - D_800DE251
+        - D_800E1180
+        - D_800E1182
+        - D_800E23A1
+        - D_800E23B0
+        - D_800E23D0
+        - D_800E23F0
+        - D_800E2450
+        - D_800E2560
+        - GsOUT_PACKET_P
+        - HARRY_BASE_ANIM_INFOS
+        - LARVAL_STALKER_ANIM_INFOS
+        - MAP_INFOS
+        - STALKER_ANIM_INFOS
+        - g_ActiveBufferIdx
+        - g_CharaAnimDataIdxs
+        - g_CharaModelAnimsData
+        - g_CommonWorldObjects
+        - g_Controller0
+        - g_CutscenePosition
+        - g_DeltaTime
+        - g_Effect_BloodSplats
+        - g_EventThing_Flashlight
+        - g_EventThing_KitchenKnife
+        - g_EventThing_Map
+        - g_EventThing_PocketRadio
+        - g_GameRegion
+        - g_GameWork
+        - g_GameWorkPtr
+        - g_GravitySpeed
+        - g_IntervalVBlanks
+        - g_ItemInspectionImg
+        - g_MapEventData
+        - g_MapHeaderTable_38
+        - g_OrderingTable0
+        - g_PaperMapImg
+        - g_ParticleCameraMoved
+        - g_ParticleMapIdx0
+        - g_ParticleMapIdx1
+        - g_ParticleSpawnCount
+        - g_ParticleVectors0
+        - g_ParticleVectors1
+        - g_Particle_Position
+        - g_Particle_PrevPosition
+        - g_Particle_PrevRotationY
+        - g_Particle_RotationY
+        - g_Particle_SpeedX
+        - g_Particle_SpeedZ
+        - g_Particles
+        - g_ParticlesAddedCount
+        - g_PcMapScreenActive
+        - g_Player_DisableControl
+        - g_Player_FlexRotationX
+        - g_Player_FlexRotationY
+        - g_Player_HeadingAngle
+        - g_Player_IsAiming
+        - g_Player_IsAttacking
+        - g_Player_IsHoldAttack
+        - g_Player_IsInWalkToRunTransition
+        - g_Player_IsMovingBackward
+        - g_Player_IsMovingForward
+        - g_Player_IsRunning
+        - g_Player_IsShooting
+        - g_Player_IsSteppingLeftHold
+        - g_Player_IsSteppingLeftTap
+        - g_Player_IsSteppingRightHold
+        - g_Player_IsSteppingRightTap
+        - g_Player_IsTurningLeft
+        - g_Player_IsTurningRight
+        - g_Player_PrevPosition
+        - g_PsxRam
+        - g_PsxScratchpad
+        - g_PsxUsePgxp
+        - g_PsyX_UsePerPixelFlashlight
+        - g_SavegamePtr
+        - g_Screen_BackgroundImgGamma
+        - g_Screen_FadeStatus
+        - g_ShDebugLog
+        - g_SysWork
+        - g_WorldObject0
+        - g_WorldObject1
+        - g_WorldObject2
+        - g_WorldObject3
+        - g_WorldObject4
+        - g_WorldObject5
+        - g_WorldObject6
+        - g_WorldObject7
+        - g_WorldObject8
+        - g_WorldObject9
+        - g_WorldObject_Cosmo
+        - g_WorldObject_Gas
+        - g_WorldObject_Katana
+        - g_WorldObject_SavePad
+        - g_WorldObject_Winr
+        - g_pMapOverlayHeader
+        - sharedData_800CAA98_0_s01
+        - sharedData_800D32A0_0_s02
+        - sharedData_800DD584_0_s00
+        - sharedData_800DD591_0_s00
+        - sharedData_800DD592_0_s00
+        - sharedData_800DD598_0_s00
+        - sharedData_800DD59C_0_s00
+        - sharedData_800DD870_0_s01
+        - sharedData_800DD880_0_s01
+        - sharedData_800DE170_0_s01
+        - sharedData_800DE180_0_s01
+        - sharedData_800DE190_0_s01
+        - sharedData_800DE1A0_0_s01
+        - sharedData_800DE1B0_0_s01
+        - sharedData_800DE1C0_0_s01
+        - sharedData_800DE1D0_0_s01
+        - sharedData_800DE1E0_0_s01
+        - sharedData_800DE1F0_0_s01
+        - sharedData_800DE200_0_s01
+        - sharedData_800DE210_0_s01
+        - sharedData_800DE220_0_s01
+        - sharedData_800DE230_0_s01
+        - sharedData_800DF1F4_0_s00
+        - sharedData_800DF1F8_0_s00
+        - sharedData_800DF1FA_0_s00
+        - sharedData_800DFB10_0_s01
+        - sharedData_800DFB6C_0_s00
+        - sharedData_800DFB70_0_s00
+        - sharedData_800DFB7C_0_s00
+        - sharedData_800E0CA8_0_s00
+        - sharedData_800E0CAC_0_s00
+        - sharedData_800E0CB0_0_s00
+        - sharedData_800E0CB4_0_s00
+        - sharedData_800E0CB6_0_s00
+        - sharedData_800E0CB8_0_s00
+        - sharedData_800E0CBA_0_s00
+        - sharedData_800E21D0_0_s01
+        - sharedData_800E2330_0_s01
+        - sharedData_800E2350_0_s01
+        - sharedData_800E2370_0_s01
+        - sharedData_800E2378_0_s01
+        - sharedData_800E237C_0_s01
+        - sharedData_800E3258_0_s00
+        - sharedData_800E325C_0_s00
+        - sharedData_800E326C_0_s00
+        - sharedData_800E39D8_0_s00

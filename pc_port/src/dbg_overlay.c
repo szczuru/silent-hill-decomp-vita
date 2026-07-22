@@ -15,7 +15,9 @@
 #include "dbg_overlay.h"
 #include "pc_config.h"
 
-#include <PsyX/common/glad.h>
+/* PsyX_render.h selects the right GL headers per platform (glad.h on
+ * desktop, vitaGL.h on __vita__, system GLES on Android/RPi/Emscripten). */
+#include <PsyX/PsyX_render.h>
 
 extern int g_windowWidth;
 extern int g_windowHeight;
@@ -1853,7 +1855,15 @@ void DbgOverlay_Render(void)
     glGetIntegerv(GL_CURRENT_PROGRAM,      &prev_prog);
     glGetIntegerv(GL_ACTIVE_TEXTURE,       &prev_active_tex);
     glGetIntegerv(GL_TEXTURE_BINDING_2D,   &prev_tex);
+#if !defined(__vita__)
     glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &prev_vao);
+#else
+    /* vitaGL has no GL_VERTEX_ARRAY_BINDING query -- see the matching
+     * glBindVertexArray(prev_vao) restore below, also skipped on this
+     * platform. The overlay only ever touches its own VAO between save and
+     * restore, so there's nothing else that could need restoring. */
+    prev_vao = 0;
+#endif
     glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &prev_vbo);
     glGetIntegerv(GL_FRAMEBUFFER_BINDING,  &prev_fb);
     glGetIntegerv(GL_BLEND_SRC_RGB,        &prev_blend_src);
@@ -2060,7 +2070,9 @@ void DbgOverlay_Render(void)
     /* Restore ALL state. */
     glBindFramebuffer(GL_FRAMEBUFFER, prev_fb);
     glBindBuffer(GL_ARRAY_BUFFER, prev_vbo);
+#if !defined(__vita__)
     glBindVertexArray(prev_vao);
+#endif
     glActiveTexture(prev_active_tex);
     glBindTexture(GL_TEXTURE_2D, prev_tex);
     glUseProgram(prev_prog);

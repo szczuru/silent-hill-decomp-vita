@@ -8,7 +8,14 @@ set(CMAKE_CXX_STANDARD 17)
 # shared objects that link the static psycross_static archive; linking a
 # static (non-PIC) archive into a shared object fails, so force PIC globally.
 # Harmless on Windows/MinGW (PE code is already position-independent).
-set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+#
+# NOT on Vita: PIC codegen emits R_ARM_BASE_PREL-family relocations that
+# vita-elf-create's ELF->VELF converter doesn't understand ("Invalid
+# relocation type 25!"), and this platform has no shared-object map overlays
+# to justify it anyway (SH_BUILD_MAP_DLLS is forced off above).
+if(NOT VITA)
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
 
 # =============================================================================
 # Options
@@ -20,6 +27,19 @@ option(SH_ASAN "Enable AddressSanitizer for memory corruption detection" OFF)
 # ON by default and free to be: ffmpeg is loaded at runtime, so this costs only the
 # headers at build time and nothing is bundled or linked. See the ffmpeg section below.
 option(SH_FMV_FFMPEG "Enable ffmpeg FMV fallback decoder (h264/h265/vp9/av1, mp4/mkv/webm)" ON)
+
+# =============================================================================
+# PS Vita cross-compile detection
+# =============================================================================
+# VITA is set True by vitasdk's toolchain file (vita.toolchain.cmake) when
+# cross-compiling with -DCMAKE_TOOLCHAIN_FILE=$VITASDK/share/vita.toolchain.cmake.
+if(VITA)
+    # No runtime dlopen()-equivalent for the ffmpeg-fallback path or map DLLs
+    # on this platform (see dll_loader.c) -- disable both up front so the rest
+    # of this file doesn't have to special-case them.
+    set(SH_FMV_FFMPEG OFF CACHE BOOL "" FORCE)
+    set(SH_BUILD_MAP_DLLS OFF CACHE BOOL "" FORCE)
+endif()
 
 # =============================================================================
 # Version defines - default to USA
@@ -161,6 +181,13 @@ file(GLOB_RECURSE PC_PORT_SOURCES
 # =============================================================================
 # Exclude map overlay stub since we now compile map0_s00 which provides g_MapOverlayHeader
 list(FILTER PC_PORT_SOURCES EXCLUDE REGEX "map_overlay_stub\\.c$")
+# Exactly one platform entry point compiles in: main_vita.c on Vita,
+# main_pc.c everywhere else (Windows/Linux/macOS).
+if(VITA)
+    list(FILTER PC_PORT_SOURCES EXCLUDE REGEX "main_pc\\.c$")
+else()
+    list(FILTER PC_PORT_SOURCES EXCLUDE REGEX "main_vita\\.c$")
+endif()
 # PC PORT: drop the combat_target.c aiming shim; the real decompiled func_8005CD38
 # (src/bodyprog/bodyprog_combat_8005BF38.c) now provides target selection.
 list(FILTER PC_PORT_SOURCES EXCLUDE REGEX "combat_target\\.c$")
@@ -452,7 +479,25 @@ if(SH_FMV_FFMPEG)
     endif()
 endif()
 
-if(WIN32)
+if(VITA)
+    # vitaGL IS the GL implementation here (see PsyCross/CMakeLists.txt,
+    # which links psycross_static to it) -- there is no separate system GL
+    # library to find/link on this platform.
+    # pthread: openal-soft's mixer thread + libstdc++'s std::locale/emutls
+    # both pull in pthread_* symbols that vitasdk's libc leaves as a
+    # separate archive (unlike glibc, where they're always present) --
+    # must come after psycross_static/OpenAL in link order.
+    target_link_libraries(SilentHillPC PRIVATE
+        SceAppMgr_stub SceAudio_stub SceAudioIn_stub SceCommonDialog_stub
+        SceCtrl_stub SceDisplay_stub SceGxm_stub SceHid_stub SceMotion_stub
+        SceSysmodule_stub SceTouch_stub taihen_stub
+    )
+    # Also linked from PsyCross/CMakeLists.txt (after OpenAL, where it's
+    # actually needed in link order) -- repeated here so pthread_* symbols
+    # libstdc++/libgcc pull in from *this* target's own object files (the
+    # C++ FMV player, std::locale init, etc) are covered too.
+    target_link_libraries(SilentHillPC PRIVATE pthread)
+elseif(WIN32)
     target_link_libraries(SilentHillPC PRIVATE opengl32 winmm m)
 elseif(UNIX)
     find_package(OpenGL REQUIRED)
@@ -540,3 +585,85 @@ endif()
 # Install
 # =============================================================================
 install(TARGETS SilentHillPC RUNTIME DESTINATION bin)
+
+# =============================================================================
+# PS Vita packaging (.vpk)
+# =============================================================================
+# ELF -> Sony VELF -> encrypted/signed-format SELF (eboot.bin) -> SFO (title
+# metadata) -> VPK (the installable package format VitaShell/qzip expect).
+# vita.cmake (vitasdk's helper macros) ships alongside vita.toolchain.cmake
+# and defines vita_create_self / vita_create_vpk.
+if(VITA)
+    include("${VITASDK}/share/vita.cmake" REQUIRED)
+
+    # Embed the curated map-API export table (vita_export/map_api_exports.yml)
+    # into SilentHillPC's own VELF so map overlay .suprx modules (see
+    # maps_vita/CMakeLists.txt) can import game-code symbols from it via
+    # sceKernelLoadStartModule's native NID-based import binding. This is a
+    # CONFIG (-e), NOT a GEN_EXPORTS (-g) -- auto-generating from the full
+    # ~12.7k-symbol table hard-fails ("segment 1 overlaps"); see the comment
+    # at the top of that yml for how this curated list was derived.
+    vita_create_self(SilentHillPC.self SilentHillPC UNSAFE
+        CONFIG "${CMAKE_SOURCE_DIR}/vita_export/map_api_exports.yml"
+    )
+
+    # Generate the stub static library map overlay modules link against to
+    # import the symbols above. vita-elf-export reads the SAME exports yml
+    # against the built ELF (not the VELF) to produce an imports yml, which
+    # vita-libs-gen turns into libSilentHillPC_stub.a + a small CMake project
+    # to build it -- add_subdirectory it directly so `make` builds the stub
+    # lib as part of the normal build (no separate manual step).
+    set(SH_VITA_MAP_IMPORTS_YML "${CMAKE_BINARY_DIR}/map_api_imports.yml")
+    add_custom_command(
+        OUTPUT "${SH_VITA_MAP_IMPORTS_YML}"
+        COMMAND "${VITA_ELF_EXPORT}" user
+                "$<TARGET_FILE:SilentHillPC>"
+                "${CMAKE_SOURCE_DIR}/vita_export/map_api_exports.yml"
+                "${SH_VITA_MAP_IMPORTS_YML}"
+        DEPENDS SilentHillPC "${CMAKE_SOURCE_DIR}/vita_export/map_api_exports.yml"
+        COMMENT "Generating map_api_imports.yml (map overlay import table)"
+        VERBATIM
+    )
+    add_custom_target(gen_map_api_imports DEPENDS "${SH_VITA_MAP_IMPORTS_YML}")
+
+    set(SH_VITA_STUBLIB_DIR "${CMAKE_BINARY_DIR}/map_stub_lib")
+    add_custom_command(
+        OUTPUT "${SH_VITA_STUBLIB_DIR}/libSilentHillPC_stub.a"
+        COMMAND "${VITA_LIBS_GEN}" -c "${SH_VITA_MAP_IMPORTS_YML}" "${SH_VITA_STUBLIB_DIR}"
+        COMMAND ${CMAKE_COMMAND} -E env VITASDK=${VITASDK}
+                ${CMAKE_COMMAND} -S "${SH_VITA_STUBLIB_DIR}" -B "${SH_VITA_STUBLIB_DIR}/build"
+                -DCMAKE_TOOLCHAIN_FILE=${VITASDK}/share/vita.toolchain.cmake
+        COMMAND ${CMAKE_COMMAND} --build "${SH_VITA_STUBLIB_DIR}/build"
+        COMMAND ${CMAKE_COMMAND} -E copy
+                "${SH_VITA_STUBLIB_DIR}/build/libSilentHillPC_stub.a"
+                "${SH_VITA_STUBLIB_DIR}/libSilentHillPC_stub.a"
+        DEPENDS "${SH_VITA_MAP_IMPORTS_YML}"
+        COMMENT "Building map overlay stub import library (libSilentHillPC_stub.a)"
+        VERBATIM
+    )
+    add_custom_target(map_stub_lib ALL DEPENDS "${SH_VITA_STUBLIB_DIR}/libSilentHillPC_stub.a")
+    add_dependencies(map_stub_lib gen_map_api_imports)
+
+    # First public build slot: no icon0.png/livearea assets committed yet
+    # (see docs/vita_port.md) -- VitaShell/LiveArea fall back to a default
+    # icon/background for a title with none, so the VPK still installs and
+    # launches fine without them. Follow-up: add sce_sys/ art and reference
+    # it here via vita_create_vpk's FILE args.
+    vita_create_vpk(SilentHillPC.vpk "SLHL00001" SilentHillPC.self
+        VERSION "01.00"
+        NAME "Silent Hill"
+    )
+
+    # Map overlays built as .suprx modules, loaded at runtime via
+    # sceKernelLoadStartModule (see dll_loader.c). Off by default so a plain
+    # build (matching the desktop SH_BUILD_MAP_DLLS default) doesn't need the
+    # stub lib to exist yet on a fresh checkout; the test-build workflow turns
+    # this on explicitly. Not gated behind SH_BUILD_MAP_DLLS (that option is
+    # forced OFF above for Vita and means something platform-specific there --
+    # Linux/Windows .so/.dll overlays via dlopen, a completely different
+    # loading mechanism this option doesn't touch).
+    option(SH_BUILD_MAP_MODULES_VITA "Build map overlays as .suprx modules (PS Vita)" OFF)
+    if(SH_BUILD_MAP_MODULES_VITA)
+        add_subdirectory(maps_vita)
+    endif()
+endif()

@@ -1,0 +1,48 @@
+/*
+ * module_glue.c.in — PS Vita map overlay module entrypoint (template)
+ *
+ * Generated per-map by maps_vita/CMakeLists.txt's add_map_module() into
+ * <build>/maps_vita/<map>/module_glue.c, with @MAP_NAME@ substituted.
+ *
+ * This is the .suprx module's ONLY vitasdk-specific file. Everything else in
+ * the module is the exact same map source files the desktop/PC .dll build
+ * compiles (see maps/CMakeLists.txt's add_map_overlay) -- SH_MAP_DLL is
+ * still defined, so those sources still see themselves as "being built as a
+ * standalone module", just via sceKernelLoadStartModule instead of dlopen.
+ *
+ * module_start pushes this map's header pointer back to the main
+ * executable's map_overlay_loader.c via the imported MapOverlay_VitaRegister
+ * (see dll_loader.c's __vita__ branch for why a push model is used instead
+ * of dlsym-by-name -- Vita has no equivalent for a just-loaded module).
+ *
+ * main() is dead code -- it's never called (Sony's module loader calls
+ * module_start, not main) -- but the vitasdk crt0/_start startup path some
+ * link configurations pull in expects a `main` symbol to exist, so it's
+ * provided here to satisfy the linker. Same pattern verified in this
+ * project's proof-of-concept module test (see PR history/session notes).
+ */
+#include <psp2/kernel/threadmgr.h>
+
+typedef struct s_MapOverlayHdr s_MapOverlayHdr;
+extern s_MapOverlayHdr g_MapOverlayHeader_@MAP_NAME@;
+extern void MapOverlay_VitaRegister(s_MapOverlayHdr* header);
+
+int module_start(SceSize argc, const void* args)
+{
+    (void)argc;
+    (void)args;
+    MapOverlay_VitaRegister(&g_MapOverlayHeader_@MAP_NAME@);
+    return 0;
+}
+
+int module_stop(SceSize argc, const void* args)
+{
+    (void)argc;
+    (void)args;
+    return 0;
+}
+
+int main(void)
+{
+    return 0;
+}

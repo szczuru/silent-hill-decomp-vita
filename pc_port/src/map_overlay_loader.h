@@ -27,4 +27,14 @@ void MapOverlay_Unload(void);
 /* Get the name of the currently loaded overlay DLL, or NULL. */
 const char* MapOverlay_GetLoadedName(void);
 
+/* PS Vita PUSH-MODEL registration (see dll_loader.c's __vita__ branch):
+ * sceKernelLoadStartModule has no dlsym()-equivalent for a loaded module to
+ * pull a symbol back out by name, so instead each map .suprx's module_start
+ * calls this (imported from the main exe via the generated stub lib) to hand
+ * back a pointer to its own g_MapOverlayHeader_<name>. sceKernelLoadStartModule
+ * calls module_start synchronously and does not return until it does, so by
+ * the time DllLoader_Open (Vita branch) gets control back, this has already
+ * run. Not used on any other platform (they use dlsym instead). */
+void MapOverlay_VitaRegister(s_MapOverlayHdr* header);
+
 #endif /* MAP_OVERLAY_LOADER_H */

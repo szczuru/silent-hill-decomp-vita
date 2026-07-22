@@ -20,7 +20,9 @@
 #include "dds_load.h"
 #include "sh_log.h"
 
-#include <PsyX/common/glad.h>
+/* PsyX_render.h selects the right GL headers per platform (glad.h on
+ * desktop, vitaGL.h on __vita__, system GLES on Android/RPi/Emscripten). */
+#include <PsyX/PsyX_render.h>
 
 #ifndef GL_COMPRESSED_RGBA_BPTC_UNORM
 #define GL_COMPRESSED_RGBA_BPTC_UNORM 0x8E8C
