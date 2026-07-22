@@ -288,6 +288,26 @@ int main(int argc, char* argv[])
     (void)argc;
     (void)argv;
 
+    /* This MUST be the very first thing done to stdout/stderr in the whole
+     * process -- setvbuf() is only well-defined when called before any
+     * other operation has been performed on the stream (C11 7.21.5.6p2).
+     * PrintBanner() below does printf() (stdout) and PcConfig_Load() does
+     * fprintf(stderr, ...) when config.cfg is missing (the default,
+     * no-config-file case); both used to run *before* the setvbuf() calls
+     * that used to live further down in this function. stderr defaulting
+     * to unbuffered anyway on most libc masked this (the late setvbuf on
+     * it was a harmless no-op), which is why the "[CONFIG] ... not found"
+     * line always made it into the TTY log. stdout does NOT default to
+     * unbuffered when it isn't detected as an interactive terminal (which
+     * describes Vita3K's tty0: from newlib's point of view here), and
+     * calling setvbuf on it after PrintBanner() already wrote to it is
+     * undefined behavior that, on this vitasdk newlib + Vita3K combo,
+     * silently breaks ALL subsequent writes to stdout instead of being a
+     * no-op -- explaining why not even PrintBanner()'s own banner text
+     * ever showed up, let alone any later SH_LOG() call. */
+    setvbuf(stdout, NULL, _IONBF, 0);
+    setvbuf(stderr, NULL, _IONBF, 0);
+
     atexit(Sh_LogAtExitFlush);
 
     PrintBanner();
@@ -337,30 +357,20 @@ int main(int argc, char* argv[])
         {
             freopen(SH_LogPath(), "a", stdout);
             freopen(SH_LogPath(), "a", stderr);
+            /* freopen() resets a stream back to its default buffering
+             * mode, undoing the unbuffered setvbuf() calls made at the
+             * very top of main() -- redo them here for the same reason,
+             * now that the streams point at the log file instead of
+             * tty0:. */
+            setvbuf(stdout, NULL, _IONBF, 0);
+            setvbuf(stderr, NULL, _IONBF, 0);
         }
 
-        /* Unconditionally unbuffer stdout/stderr, regardless of
-         * enableDebugLog. SH_LOG (used all over main()/PsyX_Initialise/
-         * MapRegistry_Init/MainLoop) is just printf() -> stdout, and
-         * stdio defaults to a large block-buffered stdout when it isn't a
-         * detected terminal (which describes Vita's tty0: device from
-         * inside an emulator/homebrew loader). On a hard crash (e.g. a
-         * native EXCEPTION_ACCESS_VIOLATION) nothing ever flushes that
-         * buffer, so every single SH_LOG line since boot -- not just the
-         * last one before the crash -- silently vanishes, making crash
-         * logs look like the game died right after whatever the last
-         * *unbuffered* (stderr) message happened to be, even if it
-         * actually ran for seconds afterwards. This previously only ran
-         * inside the freopen'd-to-a-file branch above, so a release
-         * config (enableDebugLog=0, the default -- e.g. no config.cfg on
-         * a fresh install) always hit this blind spot. Unbuffering here
-         * costs nothing but a few TTY writes, and turns the default,
-         * no-config-file case (the one actual crash reports come from)
-         * from "no usable log output" into "full boot trace up to the
-         * exact crashing call". */
-        setvbuf(stdout, NULL, _IONBF, 0);
-        setvbuf(stderr, NULL, _IONBF, 0);
-
+        /* Outside the branch above (enableDebugLog=0, the default),
+         * stdout/stderr are already unbuffered -- see the setvbuf() calls
+         * at the very top of main(), which must run before PrintBanner()/
+         * PcConfig_Load() touch either stream (C11 7.21.5.6p2). Nothing
+         * left to do here in that case. */
         {
             extern void DbgOverlay_PushLine(const char* line);
             extern void DbgOverlay_ToastLine(const char* line);
